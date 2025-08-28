@@ -383,17 +383,17 @@ function whitestudioteam_capture_cart_item_data($cart_item_data, $product_id) {
 
 		// Required & length validation (server-side)
 		$max = isset($f['max_len']) && $f['max_len'] !== '' ? (int)$f['max_len'] : 0;
-		if ($required) {
-			$empty = ($type==='checkbox') ? empty($value) : ($value==='');
-			if ($empty) {
-				wc_add_notice(sprintf(__('Please complete: %s', 'whitestudioteam-wcpa'), esc_html($f['label'])), 'error');
-				return $cart_item_data;
-			}
-		}
-		if ($max && in_array($type, ['text','textarea'], true) && is_string($value) && (mb_strlen($value) > $max)) {
-			wc_add_notice(sprintf(__('Maximum length exceeded for: %s', 'whitestudioteam-wcpa'), esc_html($f['label'])), 'error');
-			return $cart_item_data;
-		}
+                if ($required) {
+                        $empty = ($type==='checkbox') ? empty($value) : ($value==='');
+                        if ($empty) {
+                                wc_add_notice(sprintf(__('%s is a required field.', 'whitestudioteam-wcpa'), esc_html($f['label'])), 'error');
+                                return false;
+                        }
+                }
+                if ($max && in_array($type, ['text','textarea'], true) && is_string($value) && (mb_strlen($value) > $max)) {
+                        wc_add_notice(sprintf(__('Maximum length exceeded for: %s', 'whitestudioteam-wcpa'), esc_html($f['label'])), 'error');
+                        return false;
+                }
 
 		// Whitelist option values to prevent tampering
 		if (in_array($type, ['select','radio','checkbox'], true)) {
@@ -401,18 +401,18 @@ function whitestudioteam_capture_cart_item_data($cart_item_data, $product_id) {
 			$allowed_values = array_map(function($o){ return $o['value']; }, $opts);
 			if ($type === 'checkbox') {
 				foreach ((array)$value as $val) {
-					if (!in_array($val, $allowed_values, true)) {
-						wc_add_notice(__('Invalid option selected.', 'whitestudioteam-wcpa'), 'error');
-						return $cart_item_data;
-					}
-				}
-			} else {
-				if ($value !== '' && !in_array($value, $allowed_values, true)) {
-					wc_add_notice(__('Invalid option selected.', 'whitestudioteam-wcpa'), 'error');
-					return $cart_item_data;
-				}
-			}
-		}
+                                        if (!in_array($val, $allowed_values, true)) {
+                                                wc_add_notice(__('Invalid option selected.', 'whitestudioteam-wcpa'), 'error');
+                                                return false;
+                                        }
+                                }
+                        } else {
+                                if ($value !== '' && !in_array($value, $allowed_values, true)) {
+                                        wc_add_notice(__('Invalid option selected.', 'whitestudioteam-wcpa'), 'error');
+                                        return false;
+                                }
+                        }
+                }
 
 		$collected[] = [
 			'label' => sanitize_text_field($f['label']),
@@ -435,24 +435,24 @@ function whitestudioteam_capture_cart_item_data($cart_item_data, $product_id) {
 			'unique_filename_callback' => 'whitestudioteam_wcpa_unique_filename',
 		];
 		foreach ($uploads_to_process as $idx => $file) {
-			if ((int)$file['size'] > $max_bytes) {
-				wc_add_notice(__('Uploaded file is too large.', 'whitestudioteam-wcpa'), 'error');
-				return $cart_item_data;
-			}
-			$check = wp_check_filetype_and_ext($file['tmp_name'], $file['name'], $allowed_mimes);
-			if (empty($check['ext']) || empty($check['type'])) {
-				wc_add_notice(__('File type not allowed.', 'whitestudioteam-wcpa'), 'error');
-				return $cart_item_data;
-			}
-			$move = wp_handle_upload($file, $overrides);
-			if (isset($move['url'])) {
-				$collected[$idx]['value'] = esc_url_raw($move['url']);
-			} else {
-				wc_add_notice(__('File upload failed.', 'whitestudioteam-wcpa'), 'error');
-				return $cart_item_data;
-			}
-		}
-	}
+                        if ((int)$file['size'] > $max_bytes) {
+                                wc_add_notice(__('Uploaded file is too large.', 'whitestudioteam-wcpa'), 'error');
+                                return false;
+                        }
+                        $check = wp_check_filetype_and_ext($file['tmp_name'], $file['name'], $allowed_mimes);
+                        if (empty($check['ext']) || empty($check['type'])) {
+                                wc_add_notice(__('File type not allowed.', 'whitestudioteam-wcpa'), 'error');
+                                return false;
+                        }
+                        $move = wp_handle_upload($file, $overrides);
+                        if (isset($move['url'])) {
+                                $collected[$idx]['value'] = esc_url_raw($move['url']);
+                        } else {
+                                wc_add_notice(__('File upload failed.', 'whitestudioteam-wcpa'), 'error');
+                                return false;
+                        }
+                }
+        }
 
 	if (!empty($collected)) {
 		$cart_item_data['whitestudioteam_wcpa'] = $collected;
@@ -540,11 +540,11 @@ function whitestudioteam_apply_price_adjustments($cart) {
 				}
 			}
 		}
-		if ($extra !== 0) {
-			$new_price = max(0, $base_price + $extra);
-			$product->set_price(wc_format_decimal($new_price));
-		}
-	}
+                if ($extra !== 0) {
+                        $new_price = max(0, $base_price + $extra);
+                        $cart_item['data']->set_price($new_price);
+                }
+        }
 }
 add_action('woocommerce_before_calculate_totals', 'whitestudioteam_apply_price_adjustments');
 
