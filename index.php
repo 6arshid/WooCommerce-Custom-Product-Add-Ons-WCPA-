@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WhitestudioTeam – WooCommerce Product Add‑Ons (WST WCPA)
  * Description: Product Add‑Ons for WooCommerce: text, textarea, select, radio, checkbox, file upload, number + flat/percent pricing. Per‑product and simple global add‑ons.
- * Version: 1.1.0
+ * Version: 1.2.0
  * Author: WhitestudioTeam
  * Requires PHP: 7.4
  * Requires at least: 6.0
@@ -21,6 +21,7 @@ if (!defined('ABSPATH')) { exit; }
 if (!defined('WHITESTUDIOTEAM_WCPA_META_KEY'))       define('WHITESTUDIOTEAM_WCPA_META_KEY', '_whitestudioteam_wcpa_addons');
 if (!defined('WHITESTUDIOTEAM_WCPA_OPTION_GLOBAL'))  define('WHITESTUDIOTEAM_WCPA_OPTION_GLOBAL', 'whitestudioteam_wcpa_global_addons');
 if (!defined('WHITESTUDIOTEAM_WCPA_NONCE'))          define('WHITESTUDIOTEAM_WCPA_NONCE', 'whitestudioteam_wcpa_nonce');
+if (!defined('WHITESTUDIOTEAM_WCPA_MAX_UPLOAD'))     define('WHITESTUDIOTEAM_WCPA_MAX_UPLOAD', 5 * 1024 * 1024); // 5MB default
 
 /**
  * i18n – base language English, translation‑ready
@@ -46,9 +47,10 @@ function whitestudioteam_register_meta_box() {
 add_action('add_meta_boxes', 'whitestudioteam_register_meta_box');
 
 function whitestudioteam_admin_assets($hook) {
-	if (in_array($hook, ['post.php', 'post-new.php'], true)) {
-		wp_enqueue_style('whitestudioteam-wcpa-admin', plugin_dir_url(__FILE__) . 'assets/admin.css', [], '1.1.0');
-		wp_enqueue_script('whitestudioteam-wcpa-admin', plugin_dir_url(__FILE__) . 'assets/admin.js', ['jquery'], '1.1.0', true);
+	$screen = function_exists('get_current_screen') ? get_current_screen() : null;
+	if (in_array($hook, ['post.php', 'post-new.php'], true) && $screen && $screen->post_type === 'product') {
+		wp_enqueue_style('whitestudioteam-wcpa-admin', plugin_dir_url(__FILE__) . 'assets/admin.css', [], '1.2.0');
+		wp_enqueue_script('whitestudioteam-wcpa-admin', plugin_dir_url(__FILE__) . 'assets/admin.js', ['jquery'], '1.2.0', true);
 	}
 }
 add_action('admin_enqueue_scripts', 'whitestudioteam_admin_assets');
@@ -87,6 +89,15 @@ function whitestudioteam_meta_box_html($post) {
 	<?php
 }
 
+function whitestudioteam_wcpa_allowed_types() {
+	return ['text','textarea','select','radio','checkbox','file','number'];
+}
+
+function whitestudioteam_wcpa_whitelist_type($type) {
+	$type = sanitize_key($type);
+	return in_array($type, whitestudioteam_wcpa_allowed_types(), true) ? $type : 'text';
+}
+
 function whitestudioteam_row_html($index, $field) {
 	$defaults = [
 		'label' => '',
@@ -98,12 +109,13 @@ function whitestudioteam_row_html($index, $field) {
 		'max_len' => '',
 	];
 	$field = wp_parse_args($field, $defaults);
+	$field['type'] = whitestudioteam_wcpa_whitelist_type($field['type']);
 	?>
 	<tr class="wcpa-row">
 		<td><input type="text" name="wcpa[<?php echo esc_attr($index); ?>][label]" value="<?php echo esc_attr($field['label']); ?>" class="widefat" /></td>
 		<td>
 			<select name="wcpa[<?php echo esc_attr($index); ?>][type]">
-				<?php foreach (['text','textarea','select','radio','checkbox','file','number'] as $t): ?>
+				<?php foreach (whitestudioteam_wcpa_allowed_types() as $t): ?>
 					<option value="<?php echo esc_attr($t); ?>" <?php selected($field['type'], $t); ?>><?php echo esc_html(ucfirst($t)); ?></option>
 				<?php endforeach; ?>
 			</select>
@@ -125,15 +137,17 @@ function whitestudioteam_row_html($index, $field) {
 }
 
 function whitestudioteam_save_product_addons($post_id) {
-	if (!isset($_POST[WHITESTUDIOTEAM_WCPA_NONCE]) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST[WHITESTUDIOTEAM_WCPA_NONCE])), WHITESTUDIOTEAM_WCPA_NONCE)) {
-		return;
-	}
+	if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) return;
+	if (!isset($_POST[WHITESTUDIOTEAM_WCPA_NONCE]) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST[WHITESTUDIOTEAM_WCPA_NONCE])), WHITESTUDIOTEAM_WCPA_NONCE)) return;
+	if (!current_user_can('edit_post', $post_id)) return;
+
 	if (isset($_POST['wcpa']) && is_array($_POST['wcpa'])) {
 		$clean = [];
 		foreach ($_POST['wcpa'] as $i => $field) {
+			$type = whitestudioteam_wcpa_whitelist_type($field['type'] ?? 'text');
 			$clean[] = [
 				'label' => sanitize_text_field($field['label'] ?? ''),
-				'type' => sanitize_text_field($field['type'] ?? 'text'),
+				'type' => $type,
 				'required' => isset($field['required']) ? 1 : 0,
 				'options' => sanitize_text_field($field['options'] ?? ''),
 				'price_type' => in_array(($field['price_type'] ?? 'none'), ['none','flat','percent'], true) ? $field['price_type'] : 'none',
@@ -159,7 +173,6 @@ function whitestudioteam_maybe_initialize_global_option() {
 add_action('admin_init', 'whitestudioteam_maybe_initialize_global_option');
 
 function whitestudioteam_settings_tab($settings, $current_section) {
-	// Append our block to Products settings page
 	$custom = [];
 	$custom[] = [
 		'name' => __('Global Product Add‑Ons', 'whitestudioteam-wcpa'),
@@ -174,6 +187,7 @@ function whitestudioteam_settings_tab($settings, $current_section) {
 		'type' => 'textarea',
 		'id'   => WHITESTUDIOTEAM_WCPA_OPTION_GLOBAL,
 		'css'  => 'min-height:220px;',
+		'css_class' => 'large-text code',
 		'desc_tip' => true,
 		'desc' => __('Enter an array of field objects. Example: [{"label":"Gift Wrap","type":"checkbox","price_type":"flat","price_value":5}]', 'whitestudioteam-wcpa'),
 		'default' => $global_json,
@@ -184,11 +198,27 @@ function whitestudioteam_settings_tab($settings, $current_section) {
 add_filter('woocommerce_get_settings_products', 'whitestudioteam_settings_tab', 10, 2);
 
 function whitestudioteam_update_global_options() {
+	if (!current_user_can('manage_woocommerce')) return;
+	// WooCommerce settings page nonce
+	if (function_exists('check_admin_referer')) { @check_admin_referer('woocommerce-settings'); }
 	if (isset($_POST[WHITESTUDIOTEAM_WCPA_OPTION_GLOBAL])) {
-		$raw = wp_unslash($_POST[WHITESTUDIOTEAM_WCPA_OPTION_GLOBAL]);
+		$raw = (string) wp_unslash($_POST[WHITESTUDIOTEAM_WCPA_OPTION_GLOBAL]);
 		$decoded = json_decode($raw, true);
 		if (is_array($decoded)) {
-			update_option(WHITESTUDIOTEAM_WCPA_OPTION_GLOBAL, array_values($decoded));
+			// sanitize structure
+			$san = [];
+			foreach ($decoded as $field) {
+				$san[] = [
+					'label' => sanitize_text_field($field['label'] ?? ''),
+					'type' => whitestudioteam_wcpa_whitelist_type($field['type'] ?? 'text'),
+					'required' => !empty($field['required']) ? 1 : 0,
+					'options' => sanitize_text_field($field['options'] ?? ''),
+					'price_type' => in_array(($field['price_type'] ?? 'none'), ['none','flat','percent'], true) ? $field['price_type'] : 'none',
+					'price_value' => is_numeric($field['price_value'] ?? '') ? (float) $field['price_value'] : '',
+					'max_len' => is_numeric($field['max_len'] ?? '') ? (int) $field['max_len'] : '',
+				];
+			}
+			update_option(WHITESTUDIOTEAM_WCPA_OPTION_GLOBAL, array_values($san));
 		}
 	}
 }
@@ -202,9 +232,15 @@ function whitestudioteam_get_all_fields_for_product($product_id) {
 	if (!is_array($per)) { $per = []; }
 	$global = get_option(WHITESTUDIOTEAM_WCPA_OPTION_GLOBAL, []);
 	if (!is_array($global)) { $global = []; }
-	return array_values(array_filter(array_merge($global, $per), function($f){
-		return !empty($f['label']) && !empty($f['type']);
-	}));
+	$merged = array_merge($global, $per);
+	// enforce whitelist
+	$out = [];
+	foreach ($merged as $f) {
+		if (empty($f['label']) || empty($f['type'])) continue;
+		$f['type'] = whitestudioteam_wcpa_whitelist_type($f['type']);
+		$out[] = $f;
+	}
+	return array_values($out);
 }
 
 function whitestudioteam_render_product_fields() {
@@ -224,7 +260,7 @@ add_action('woocommerce_before_add_to_cart_button', 'whitestudioteam_render_prod
 
 function whitestudioteam_render_field($f, $i) {
 	$label = esc_html($f['label']);
-	$type  = sanitize_key($f['type']);
+	$type  = whitestudioteam_wcpa_whitelist_type($f['type']);
 	$req   = !empty($f['required']);
 	$name  = 'wcpa_' . $i;
 	$max   = isset($f['max_len']) && $f['max_len'] !== '' ? (int)$f['max_len'] : '';
@@ -266,7 +302,7 @@ function whitestudioteam_render_field($f, $i) {
 
 function whitestudioteam_parse_options($f) {
 	$opts = [];
-	$raw = $f['options'] ?? '';
+	$raw = isset($f['options']) ? (string) $f['options'] : '';
 	if (!$raw) { return $opts; }
 	$parts = array_map('trim', explode(',', $raw));
 	foreach ($parts as $p) {
@@ -276,6 +312,7 @@ function whitestudioteam_parse_options($f) {
 		if ($extra !== '') {
 			$price_adj = (float) str_replace(['+','%'], '', $extra);
 		}
+		$label = sanitize_text_field($label);
 		$opts[] = [
 			'label' => $label,
 			'value' => $label,
@@ -290,12 +327,31 @@ function whitestudioteam_parse_options($f) {
  */
 function whitestudioteam_force_form_multipart() {
 	if (!is_product()) { return; }
-	echo "\n<script>(function(){var f=document.querySelector('form.cart'); if(f){f.setAttribute('enctype','multipart/form-data');}})();</script>\n"; // phpcs:ignore WordPress.Security.EscapeOutput
+	echo "
+<script>(function(){var f=document.querySelector('form.cart'); if(f){f.setAttribute('enctype','multipart/form-data');}})();</script>
+"; // phpcs:ignore WordPress.Security.EscapeOutput
 }
 add_action('wp_footer', 'whitestudioteam_force_form_multipart');
 
 /**
- * Cart capture
+ * Secure upload helpers
+ */
+function whitestudioteam_wcpa_allowed_mimes() {
+	$default = [
+		'jpg|jpeg|jpe' => 'image/jpeg',
+		'png' => 'image/png',
+		'gif' => 'image/gif',
+		'pdf' => 'application/pdf',
+	];
+	return apply_filters('whitestudioteam_wcpa_allowed_mimes', $default);
+}
+
+function whitestudioteam_wcpa_unique_filename($dir, $name, $ext) {
+	return 'wcpa-' . wp_generate_password(12, false, false) . $ext;
+}
+
+/**
+ * Cart capture (validation + sanitization + whitelist checks)
  */
 function whitestudioteam_capture_cart_item_data($cart_item_data, $product_id) {
 	if (!isset($_POST[WHITESTUDIOTEAM_WCPA_NONCE]) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST[WHITESTUDIOTEAM_WCPA_NONCE])), WHITESTUDIOTEAM_WCPA_NONCE)) {
@@ -309,7 +365,7 @@ function whitestudioteam_capture_cart_item_data($cart_item_data, $product_id) {
 
 	foreach ($fields as $i => $f) {
 		$name = 'wcpa_' . $i;
-		$type = $f['type'];
+		$type = whitestudioteam_wcpa_whitelist_type($f['type']);
 		$required = !empty($f['required']);
 		$value = null;
 
@@ -325,9 +381,37 @@ function whitestudioteam_capture_cart_item_data($cart_item_data, $product_id) {
 			}
 		}
 
-		if ($required && ( ($type==='checkbox' && empty($value)) || ($type!=='checkbox' && $value==='') )) {
-			wc_add_notice(sprintf(__('Please complete: %s', 'whitestudioteam-wcpa'), esc_html($f['label'])), 'error');
-			return $cart_item_data; // abort add to cart
+		// Required & length validation (server-side)
+		$max = isset($f['max_len']) && $f['max_len'] !== '' ? (int)$f['max_len'] : 0;
+		if ($required) {
+			$empty = ($type==='checkbox') ? empty($value) : ($value==='');
+			if ($empty) {
+				wc_add_notice(sprintf(__('Please complete: %s', 'whitestudioteam-wcpa'), esc_html($f['label'])), 'error');
+				return $cart_item_data;
+			}
+		}
+		if ($max && in_array($type, ['text','textarea'], true) && is_string($value) && (mb_strlen($value) > $max)) {
+			wc_add_notice(sprintf(__('Maximum length exceeded for: %s', 'whitestudioteam-wcpa'), esc_html($f['label'])), 'error');
+			return $cart_item_data;
+		}
+
+		// Whitelist option values to prevent tampering
+		if (in_array($type, ['select','radio','checkbox'], true)) {
+			$opts = whitestudioteam_parse_options($f);
+			$allowed_values = array_map(function($o){ return $o['value']; }, $opts);
+			if ($type === 'checkbox') {
+				foreach ((array)$value as $val) {
+					if (!in_array($val, $allowed_values, true)) {
+						wc_add_notice(__('Invalid option selected.', 'whitestudioteam-wcpa'), 'error');
+						return $cart_item_data;
+					}
+				}
+			} else {
+				if ($value !== '' && !in_array($value, $allowed_values, true)) {
+					wc_add_notice(__('Invalid option selected.', 'whitestudioteam-wcpa'), 'error');
+					return $cart_item_data;
+				}
+			}
 		}
 
 		$collected[] = [
@@ -336,15 +420,30 @@ function whitestudioteam_capture_cart_item_data($cart_item_data, $product_id) {
 			'value' => $value,
 			'price_type' => $f['price_type'] ?? 'none',
 			'price_value' => isset($f['price_value']) && $f['price_value'] !== '' ? (float)$f['price_value'] : 0,
-			'options' => whitestudioteam_parse_options($f),
+			'options' => isset($opts) ? $opts : whitestudioteam_parse_options($f),
 		];
 	}
 
-	// Handle uploads now and replace value with URL
+	// Handle uploads now (type whitelist + size limit + safe name)
 	if (!empty($uploads_to_process)) {
 		require_once ABSPATH . 'wp-admin/includes/file.php';
-		$overrides = ['test_form' => false];
+		$allowed_mimes = whitestudioteam_wcpa_allowed_mimes();
+		$max_bytes = (int) apply_filters('whitestudioteam_wcpa_max_upload_bytes', WHITESTUDIOTEAM_WCPA_MAX_UPLOAD);
+		$overrides = [
+			'test_form' => false,
+			'mimes' => $allowed_mimes,
+			'unique_filename_callback' => 'whitestudioteam_wcpa_unique_filename',
+		];
 		foreach ($uploads_to_process as $idx => $file) {
+			if ((int)$file['size'] > $max_bytes) {
+				wc_add_notice(__('Uploaded file is too large.', 'whitestudioteam-wcpa'), 'error');
+				return $cart_item_data;
+			}
+			$check = wp_check_filetype_and_ext($file['tmp_name'], $file['name'], $allowed_mimes);
+			if (empty($check['ext']) || empty($check['type'])) {
+				wc_add_notice(__('File type not allowed.', 'whitestudioteam-wcpa'), 'error');
+				return $cart_item_data;
+			}
 			$move = wp_handle_upload($file, $overrides);
 			if (isset($move['url'])) {
 				$collected[$idx]['value'] = esc_url_raw($move['url']);
@@ -366,10 +465,10 @@ function whitestudioteam_show_item_data($item_data, $cart_item) {
 	if (isset($cart_item['whitestudioteam_wcpa']) && is_array($cart_item['whitestudioteam_wcpa'])) {
 		foreach ($cart_item['whitestudioteam_wcpa'] as $f) {
 			$val = $f['value'];
-			if (is_array($val)) { $val = implode(', ', $val); }
+			if (is_array($val)) { $val = implode(', ', array_map('sanitize_text_field', $val)); }
 			$item_data[] = [
-				'key' => $f['label'],
-				'value' => ( $f['type'] === 'file' ? sprintf('<a href="%s" target="_blank">%s</a>', esc_url($val), esc_html__('View file','whitestudioteam-wcpa')) : wc_clean($val) ),
+				'key' => esc_html($f['label']),
+				'value' => ( $f['type'] === 'file' ? wp_kses_post(sprintf('<a href="%s" target="_blank" rel="noopener">%s</a>', esc_url($val), esc_html__('View file','whitestudioteam-wcpa'))) : esc_html($val) ),
 				'display' => '',
 			];
 		}
@@ -382,8 +481,8 @@ function whitestudioteam_add_order_item_meta($item, $cart_item_key, $values, $or
 	if (isset($values['whitestudioteam_wcpa'])) {
 		foreach ($values['whitestudioteam_wcpa'] as $f) {
 			$val = $f['value'];
-			if (is_array($val)) { $val = implode(', ', $val); }
-			$item->add_meta_data($f['label'], $val, true);
+			if (is_array($val)) { $val = implode(', ', array_map('sanitize_text_field', $val)); }
+			$item->add_meta_data(sanitize_text_field($f['label']), $val, true);
 		}
 	}
 }
