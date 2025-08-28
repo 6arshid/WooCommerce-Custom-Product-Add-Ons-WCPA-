@@ -23,6 +23,15 @@ if (!defined('WHITESTUDIOTEAM_WCPA_OPTION_GLOBAL'))  define('WHITESTUDIOTEAM_WCP
 if (!defined('WHITESTUDIOTEAM_WCPA_NONCE'))          define('WHITESTUDIOTEAM_WCPA_NONCE', 'whitestudioteam_wcpa_nonce');
 
 /**
+ * Declare compatibility with WooCommerce High-Performance Order Storage (HPOS).
+ */
+add_action('before_woocommerce_init', function () {
+        if (class_exists('\\Automattic\\WooCommerce\\Utilities\\FeaturesUtil')) {
+                \Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility('custom_order_tables', __FILE__, true);
+        }
+});
+
+/**
  * i18n – base language English, translation‑ready
  */
 function whitestudioteam_load_textdomain() {
