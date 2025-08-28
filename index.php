@@ -462,29 +462,51 @@ function whitestudioteam_capture_cart_item_data($cart_item_data, $product_id) {
 add_filter('woocommerce_add_cart_item_data', 'whitestudioteam_capture_cart_item_data', 10, 2);
 
 function whitestudioteam_show_item_data($item_data, $cart_item) {
-	if (isset($cart_item['whitestudioteam_wcpa']) && is_array($cart_item['whitestudioteam_wcpa'])) {
-		foreach ($cart_item['whitestudioteam_wcpa'] as $f) {
-			$val = $f['value'];
-			if (is_array($val)) { $val = implode(', ', array_map('sanitize_text_field', $val)); }
-			$item_data[] = [
-				'key' => esc_html($f['label']),
-				'value' => ( $f['type'] === 'file' ? wp_kses_post(sprintf('<a href="%s" target="_blank" rel="noopener">%s</a>', esc_url($val), esc_html__('View file','whitestudioteam-wcpa'))) : esc_html($val) ),
-				'display' => '',
-			];
-		}
-	}
-	return $item_data;
+        if (isset($cart_item['whitestudioteam_wcpa']) && is_array($cart_item['whitestudioteam_wcpa'])) {
+                foreach ($cart_item['whitestudioteam_wcpa'] as $f) {
+                        $val = $f['value'];
+                        if (is_array($val)) { $val = implode(', ', array_map('sanitize_text_field', $val)); }
+
+                        $display_val = ($f['type'] === 'file'
+                                ? wp_kses_post(sprintf('<a href="%s" target="_blank" rel="noopener">%s</a>', esc_url($val), esc_html__('View file','whitestudioteam-wcpa')))
+                                : esc_html($val));
+
+                        if (!empty($f['price_type']) && $f['price_type'] !== 'none' && $f['price_value'] !== '') {
+                                $p = (float) $f['price_value'];
+                                if ($f['price_type'] === 'percent') {
+                                        $display_val .= ' (+' . wc_format_decimal($p) . '%)';
+                                } else {
+                                        $display_val .= ' (+' . wc_price($p) . ')';
+                                }
+                        }
+
+                        $item_data[] = [
+                                'key' => esc_html($f['label']),
+                                'value' => wp_kses_post($display_val),
+                                'display' => '',
+                        ];
+                }
+        }
+        return $item_data;
 }
 add_filter('woocommerce_get_item_data', 'whitestudioteam_show_item_data', 10, 2);
 
 function whitestudioteam_add_order_item_meta($item, $cart_item_key, $values, $order) {
-	if (isset($values['whitestudioteam_wcpa'])) {
-		foreach ($values['whitestudioteam_wcpa'] as $f) {
-			$val = $f['value'];
-			if (is_array($val)) { $val = implode(', ', array_map('sanitize_text_field', $val)); }
-			$item->add_meta_data(sanitize_text_field($f['label']), $val, true);
-		}
-	}
+        if (isset($values['whitestudioteam_wcpa'])) {
+                foreach ($values['whitestudioteam_wcpa'] as $f) {
+                        $val = $f['value'];
+                        if (is_array($val)) { $val = implode(', ', array_map('sanitize_text_field', $val)); }
+                        if (!empty($f['price_type']) && $f['price_type'] !== 'none' && $f['price_value'] !== '') {
+                                $p = (float) $f['price_value'];
+                                if ($f['price_type'] === 'percent') {
+                                        $val .= ' (+' . wc_format_decimal($p) . '%)';
+                                } else {
+                                        $val .= ' (+' . strip_tags(wc_price($p)) . ')';
+                                }
+                        }
+                        $item->add_meta_data(sanitize_text_field($f['label']), $val, true);
+                }
+        }
 }
 add_action('woocommerce_checkout_create_order_line_item', 'whitestudioteam_add_order_item_meta', 10, 4);
 
