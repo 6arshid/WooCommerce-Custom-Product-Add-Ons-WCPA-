@@ -282,14 +282,65 @@ function whitestudioteam_parse_options($f) {
 			'price_adj' => $price_adj,
 		];
 	}
-	return $opts;
+        return $opts;
 }
+
+/**
+ * Display standard product attributes on product page, cart and order.
+ */
+function whitestudioteam_display_product_attributes() {
+        global $product;
+        if (!$product) { return; }
+        $attributes = $product->get_attributes();
+        if (empty($attributes)) { return; }
+        echo '<div class="wcpa-product-attributes">';
+        wc_display_product_attributes($product);
+        echo '</div>';
+}
+add_action('woocommerce_single_product_summary', 'whitestudioteam_display_product_attributes', 25);
+
+function whitestudioteam_attributes_item_data($item_data, $cart_item) {
+        $product = $cart_item['data'] ?? null;
+        if (!$product instanceof WC_Product || $product->is_type('variation')) { return $item_data; }
+        foreach ($product->get_attributes() as $attribute) {
+                if (!$attribute->get_visible()) { continue; }
+                $name = wc_attribute_label($attribute->get_name());
+                $value = $attribute->is_taxonomy()
+                        ? implode(', ', wc_get_product_terms($product->get_id(), $attribute->get_name(), ['fields' => 'names']))
+                        : implode(', ', array_map('wc_clean', $attribute->get_options()));
+                if ($value !== '') {
+                        $item_data[] = [
+                                'key' => $name,
+                                'value' => wc_clean($value),
+                                'display' => '',
+                        ];
+                }
+        }
+        return $item_data;
+}
+add_filter('woocommerce_get_item_data', 'whitestudioteam_attributes_item_data', 5, 2);
+
+function whitestudioteam_add_order_item_attributes($item, $cart_item_key, $values, $order) {
+        $product = $values['data'] ?? null;
+        if (!$product instanceof WC_Product || $product->is_type('variation')) { return; }
+        foreach ($product->get_attributes() as $attribute) {
+                if (!$attribute->get_visible()) { continue; }
+                $name = wc_attribute_label($attribute->get_name());
+                $value = $attribute->is_taxonomy()
+                        ? implode(', ', wc_get_product_terms($product->get_id(), $attribute->get_name(), ['fields' => 'names']))
+                        : implode(', ', array_map('wc_clean', $attribute->get_options()));
+                if ($value !== '') {
+                        $item->add_meta_data($name, $value, true);
+                }
+        }
+}
+add_action('woocommerce_checkout_create_order_line_item', 'whitestudioteam_add_order_item_attributes', 9, 4);
 
 /**
  * Ensure add-to-cart form supports file uploads
  */
 function whitestudioteam_force_form_multipart() {
-	if (!is_product()) { return; }
+        if (!is_product()) { return; }
 	echo "\n<script>(function(){var f=document.querySelector('form.cart'); if(f){f.setAttribute('enctype','multipart/form-data');}})();</script>\n"; // phpcs:ignore WordPress.Security.EscapeOutput
 }
 add_action('wp_footer', 'whitestudioteam_force_form_multipart');
